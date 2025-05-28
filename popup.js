@@ -195,13 +195,20 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function displayResults(data) {
+    if (!data) {
+      resultTableContainer.innerHTML = '<p>没有提取到符合条件的数据，或者返回格式不正确。</p>';
+      return;
+    }
+
     if (typeof data === 'string') {
-      // 只提取 markdown 表格部分
-      const tableMatch = data.match(/((?:\|.+\n)+\|.+\n)/);
+      // 提取 markdown 表格部分，包括表头、分隔行和数据行
+      const tableMatch = data.match(/\|.+\n\|[-:]+\n(?:\|.+\n)+/);
       if (tableMatch) {
-        const tableText = tableMatch[1];
+        const tableText = tableMatch[0];
         const lines = tableText.trim().split('\n');
-        if (lines.length >= 3) { // 至少需要表头、分隔行和一行数据
+        
+        // 确保至少有表头、分隔行和一行数据
+        if (lines.length >= 3) {
           // 解析表头
           const headers = lines[0].split('|')
             .filter(h => h.trim())
@@ -252,13 +259,73 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
       }
-      // 如果不是表格格式，直接显示文本
+      
+      // 如果不是表格格式，尝试直接解析文本中的表格
+      const lines = data.trim().split('\n');
+      if (lines.length >= 3 && lines[0].includes('|') && lines[1].includes('|')) {
+        // 解析表头
+        const headers = lines[0].split('|')
+          .filter(h => h.trim())
+          .map(h => h.trim());
+        
+        // 创建表格 HTML
+        let tableHTML = `
+          <div class="table-header">
+            <div class="table-title">分析结果</div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="table-info">共 ${lines.length - 2} 条记录</div>
+              <button id="copyToClipboard" style="padding: 4px 8px; font-size: 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer;">复制到剪贴板</button>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                ${headers.map(header => `<th>${formatColumnName(header)}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        // 跳过表头和分隔行，处理数据行
+        for (let i = 2; i < lines.length; i++) {
+          const cells = lines[i].split('|')
+            .filter(c => c.trim())
+            .map(c => c.trim());
+          
+          if (cells.length === headers.length) {
+            tableHTML += '<tr>';
+            cells.forEach((cell, index) => {
+              const columnName = headers[index].toLowerCase();
+              tableHTML += `<td>${formatMarkdownCell(cell, columnName)}</td>`;
+            });
+            tableHTML += '</tr>';
+          }
+        }
+
+        tableHTML += '</tbody></table>';
+        resultTableContainer.innerHTML = tableHTML;
+        
+        // 添加复制按钮事件监听
+        const copyButton = document.getElementById('copyToClipboard');
+        if (copyButton) {
+          copyButton.onclick = copyTableToClipboard;
+        }
+        return;
+      }
+      
+      // 如果都不是表格格式，直接显示文本
       resultTableContainer.innerHTML = `<p>${data}</p>`;
-    } else if (Array.isArray(data) && data.length > 0) {
+      return;
+    }
+
+    // 处理对象数组类型的数据
+    if (Array.isArray(data)) {
       // 获取所有可能的列
       const columns = new Set();
       data.forEach(item => {
-        Object.keys(item).forEach(key => columns.add(key));
+        if (item && typeof item === 'object') {
+          Object.keys(item).forEach(key => columns.add(key));
+        }
       });
       
       // 将Set转换为数组并排序
@@ -295,12 +362,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 添加数据行
       data.forEach(item => {
-        tableHTML += '<tr>';
-        sortedColumns.forEach(col => {
-          const value = item[col];
-          tableHTML += `<td>${formatCellValue(value, col)}</td>`;
-        });
-        tableHTML += '</tr>';
+        if (item && typeof item === 'object') {
+          tableHTML += '<tr>';
+          sortedColumns.forEach(col => {
+            const value = item[col];
+            tableHTML += `<td>${formatCellValue(value, col)}</td>`;
+          });
+          tableHTML += '</tr>';
+        }
       });
 
       tableHTML += '</tbody></table>';
@@ -311,9 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (copyButton) {
         copyButton.onclick = copyTableToClipboard;
       }
-    } else {
-      resultTableContainer.innerHTML = '<p>没有提取到符合条件的数据，或者返回格式不正确。</p>';
+      return;
     }
+
+    resultTableContainer.innerHTML = '<p>没有提取到符合条件的数据，或者返回格式不正确。</p>';
   }
 
   // 格式化列名

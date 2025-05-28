@@ -76,9 +76,16 @@ async function callLlmApi(pageContent, userQuery, config) {
         model: config.modelName,
         messages: [
           {
-            role: "system",
-            content: `你是一个帮助用户分析社交媒体内容的助手。请根据用户的指令，分析提供的内容并返回相应的结果。
+            role: "user",
+            content: `你是一个帮助用户从大量社交媒体原始内容中提取有用信息的助手。请根据用户的指令，分析提供的内容并返回相应的结果。
 
+ ### 原始内容
+${JSON.stringify(pageContent)}
+
+### 用户指令
+${userQuery}           
+
+### 要求
 当需要返回表格数据时，请使用以下格式的 markdown 表格：
 
 | 标题 | 作者 | 时间 | 点赞数 | 链接 |
@@ -86,7 +93,7 @@ async function callLlmApi(pageContent, userQuery, config) {
 | 标题1 | 作者1 | 时间1 | 点赞数1 | [查看](url1) |
 | 标题2 | 作者2 | 时间2 | 点赞数2 | [查看](url2) |
 
-注意事项：
+### 注意事项：
 1. 表格必须包含表头和分隔行（第二行的破折号）
 2. 每列之间使用 | 分隔
 3. 表头使用中文，如：标题、作者、时间、点赞数、链接
@@ -94,14 +101,14 @@ async function callLlmApi(pageContent, userQuery, config) {
 5. 点赞数使用纯数字，不要带单位
 6. 标题中的特殊字符（如emoji）可以保留
 7. 链接列使用 markdown 格式 [查看](url)，url 必须是完整的链接地址
-8. 作者列显示发布者的账号名称`
-          },
-          {
-            role: "user",
-            content: `页面内容：${JSON.stringify(pageContent)}\n\n用户指令：${userQuery}`
+8. 作者列显示发布者的账号名称
+
+### 返回结果
+请直接返回表格数据，不要包含任何其他内容。
+`
           }
         ],
-        temperature: 0.7
+        temperature: 0.1
       })
     });
 
