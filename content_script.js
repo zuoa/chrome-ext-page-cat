@@ -23,33 +23,97 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function autoScrollAndExtractAllData() {
   let lastHeight = 0;
   let sameCount = 0;
-  let maxSameCount = 5; // 连续5次高度不变则认为到底
-  let maxScrollTimes = 50; // 最多滚动50次，防止死循环
+  let maxSameCount = 8; // 进一步增加连续相同高度的判断次数
+  let maxScrollTimes = 300; // 进一步增加最大滚动次数
   let scrollTimes = 0;
   const allItemsMap = new Map(); // key: title+time+author, value: item
+  let lastItemCount = 0; // 记录上次采集到的项目数量
+  let noNewContentCount = 0; // 记录连续没有新内容的次数
+  let lastScrollPosition = 0; // 记录上次滚动位置
+  let lastItemsSize = 0; // 记录上次采集到的总项目数
+
+  console.log('开始自动滚动采集...');
 
   while (sameCount < maxSameCount && scrollTimes < maxScrollTimes) {
     // 采集当前可见内容
     const items = extractPageData();
+    let newItemsFound = false;
+    
     items.forEach(item => {
       // 用标题+时间+作者做唯一标识
       const key = `${item.title}||${item.time}||${item.author}`;
       if (!allItemsMap.has(key)) {
         allItemsMap.set(key, item);
+        newItemsFound = true;
       }
     });
 
-    window.scrollTo(0, document.body.scrollHeight);
-    await new Promise(r => setTimeout(r, 800)); // 等待内容加载
+    // 记录当前滚动位置
+    const currentScrollPosition = window.pageYOffset;
+    const scrollDistance = currentScrollPosition - lastScrollPosition;
+    lastScrollPosition = currentScrollPosition;
+
+    // 检查是否有新内容被采集
+    const currentItemsSize = allItemsMap.size;
+    const hasNewItems = currentItemsSize > lastItemsSize;
+    lastItemsSize = currentItemsSize;
+
+    console.log(`滚动次数: ${scrollTimes + 1}, 当前高度: ${document.body.scrollHeight}, 新增内容: ${newItemsFound}, 滚动距离: ${scrollDistance}, 总采集数: ${currentItemsSize}`);
+
+    // 如果这次没有发现新内容，增加计数器
+    if (!newItemsFound && !hasNewItems) {
+      noNewContentCount++;
+    } else {
+      noNewContentCount = 0;
+    }
+
+    // 如果连续多次没有新内容，且滚动距离很小，才增加sameCount
+    if (!newItemsFound && !hasNewItems && Math.abs(scrollDistance) < 10) {
+      sameCount++;
+    } else {
+      sameCount = 0;
+    }
+
+    // 使用平滑滚动
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'
+    });
+
+    // 增加等待时间，确保内容加载完成
+    await new Promise(r => setTimeout(r, 2500));
+
+    // 检查是否有新内容加载
     let newHeight = document.body.scrollHeight;
-    if (newHeight === lastHeight) {
+    if (newHeight === lastHeight && !newItemsFound && !hasNewItems && noNewContentCount > 5) {
       sameCount++;
     } else {
       sameCount = 0;
       lastHeight = newHeight;
     }
+    
     scrollTimes++;
+    
+    // 如果已经采集到足够多的内容，可以提前结束
+    if (allItemsMap.size >= 500) {
+      console.log('已采集到足够多的内容，提前结束');
+      break;
+    }
+
+    // 如果连续多次没有新内容且滚动距离很小，可能已经到底
+    if (noNewContentCount > 8 && Math.abs(scrollDistance) < 10) {
+      console.log('连续多次没有新内容且滚动距离很小，可能已到底部');
+      break;
+    }
+
+    // 如果滚动到底部，等待更长时间再结束
+    if (window.innerHeight + window.pageYOffset >= document.body.scrollHeight) {
+      console.log('已滚动到底部，等待最后的内容加载...');
+      await new Promise(r => setTimeout(r, 3000));
+    }
   }
+  
+  console.log(`滚动结束，共滚动 ${scrollTimes} 次，采集到 ${allItemsMap.size} 条内容`);
   window.scrollTo(0, 0); // 回到顶部
   return Array.from(allItemsMap.values());
 }
