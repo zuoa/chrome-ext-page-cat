@@ -629,4 +629,15 @@ document.addEventListener('DOMContentLoaded', () => {
       statusDiv.textContent = '复制失败，请手动复制表格内容';
     }
   }
+
+  // 添加消息监听器
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'SCROLL_PROGRESS') {
+      console.log('SCROLL_PROGRESS', message);
+      updateProgress(message.progress);
+      if (message.message) {
+        statusDiv.textContent = message.message;
+      }
+    }
+  });
 });

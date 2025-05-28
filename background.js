@@ -60,26 +60,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function callLlmApi(pageContent, userQuery, config) {
-  if (!config || !config.baseUrl || !config.apiKey || !config.modelName) {
-    throw new Error('API configuration is missing. Please set up the xAI API Base URL, API Key and Model Name in the extension settings.');
+// 验证配置是否完整
+function validateConfig(config) {
+  const requiredFields = ['baseUrl', 'apiKey', 'modelName'];
+  const missingFields = requiredFields.filter(field => !config[field]);
+  
+  if (missingFields.length > 0) {
+    throw new Error(`Missing required configuration: ${missingFields.join(', ')}`);
   }
-
+  
+  // 验证 URL 格式
   try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: config.modelName,
-        messages: [
-          {
-            role: "user",
-            content: `你是一个帮助用户从大量社交媒体原始内容中提取有用信息的助手。请根据用户的指令，分析提供的内容并返回相应的结果。
+    new URL(config.baseUrl);
+  } catch (e) {
+    throw new Error('Invalid baseUrl format');
+  }
+}
 
- ### 原始内容
+// 构建提示词
+function buildPrompt(pageContent, userQuery) {
+  return `你是一个帮助用户从大量社交媒体原始内容中提取有用信息的助手。请根据用户的指令，分析提供的内容并返回相应的结果。
+
+### 原始内容
 ${JSON.stringify(pageContent)}
 
 ### 用户指令
@@ -104,35 +106,60 @@ ${userQuery}
 8. 作者列显示发布者的账号名称
 
 ### 返回结果
-请直接返回表格数据，不要包含任何其他内容。
-`
+请直接返回表格数据，不要包含任何其他内容。`;
+}
+
+// 处理 API 响应
+function handleApiResponse(data) {
+  if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+    throw new Error('Invalid response format: missing or empty choices array');
+  }
+
+  const content = data.choices[0].message.content;
+  if (!content) {
+    throw new Error('Invalid response format: empty content');
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    // 如果不是 JSON，直接返回文本
+    return content;
+  }
+}
+
+async function callLlmApi(pageContent, userQuery, config) {
+  try {
+    // 1. 验证配置
+    validateConfig(config);
+
+    // 2. 构建请求
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({
+        model: config.modelName,
+        messages: [
+          {
+            role: "user",
+            content: buildPrompt(pageContent, userQuery)
           }
         ],
         temperature: 0.1
       })
     });
 
+    // 3. 处理响应
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
       throw new Error(errorData?.error?.message || `API request failed with status ${response.status}`);
     }
 
     const data = await response.json();
-    
-    // 处理API响应
-    if (data.choices && data.choices.length > 0) {
-      const result = data.choices[0].message.content;
-      
-      // 尝试解析JSON响应
-      try {
-        return JSON.parse(result);
-      } catch (e) {
-        // 如果不是JSON，直接返回文本
-        return result;
-      }
-    } else {
-      throw new Error('Invalid response format from API');
-    }
+    return handleApiResponse(data);
   } catch (error) {
     console.error('API call failed:', error);
     throw error;
